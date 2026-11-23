@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Casa Nova – Lista de Compras</title>
+<title>Nossa Casinha</title>
 <style>
 :root{--bg:#f6f4f0;--card:#fff;--tx:#1f2328;--mut:#6b7280;--bd:#e4e0d8;--ac:#0f766e;--acx:#fff;--ok:#15803d;--warn:#b45309;--bad:#b91c1c;--chip:#efece6;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14171a;--card:#1d2125;--tx:#e8eaed;--mut:#9aa3ad;--bd:#2b3138;--ac:#2dd4bf;--acx:#06201c;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--chip:#262b31;color-scheme:dark}}
@@ -37,12 +37,13 @@ dialog::backdrop{background:#0008}
 label{font-size:12px;color:var(--mut);display:block;margin-bottom:2px}
 .empty{text-align:center;color:var(--mut);padding:30px 0}
 .foot{display:flex;gap:8px;margin-top:18px;flex-wrap:wrap}
+#lg{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}.lgc{text-align:center}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>🏠 Casa Nova</h1>
-  <p class="sub">Tudo que falta e tudo que já foi comprado pro apê.</p>
+  <h1>🏠 Nossa Casinha</h1>
+  <p class="sub">Tudo que falta e tudo que já foi comprado pro apê. <span id="st"></span></p>
   <div class="sum" id="sum"></div>
   <div class="bar">
     <input id="q" placeholder="Buscar item, loja, cômodo…">
@@ -52,10 +53,12 @@ label{font-size:12px;color:var(--mut);display:block;margin-bottom:2px}
   <div class="list" id="list"></div>
   <div class="foot">
     <button class="b" id="exp">⬇ Exportar backup</button>
+    <button class="b" id="out" style="margin-left:auto">Trocar código</button>
     <button class="b" id="imp">⬆ Importar backup</button>
     <input type="file" id="impf" accept=".json" hidden>
   </div>
 </div>
+<div id="lg"><div class="lgc"><div style="font-size:42px">🏠</div><h2 style="margin:6px 0">Nossa Casinha</h2><p class="sub">Digite o código secreto de vocês (o mesmo nos dois aparelhos).</p><input id="lgi" placeholder="ex.: casinha-erick-2026" autocomplete="off" style="margin-bottom:10px;text-align:center"><button class="b p" id="lgb" style="padding:10px 18px;font-size:15px">Entrar</button></div></div>
 <button class="fab" id="add">+ Item</button>
 
 <dialog id="dlg">
@@ -86,13 +89,46 @@ label{font-size:12px;color:var(--mut);display:block;margin-bottom:2px}
   </form>
 </dialog>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
 (function(){
 var KEY="casanova:v1",CATS=["Cozinha","Sala","Quarto","Banheiro","Lavanderia","Eletrodomésticos","Decoração","Outros"];
 var items=[],editId=null,photo="";
 var $=function(i){return document.getElementById(i)};
 function load(){try{items=JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){items=[]}}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(items))}catch(e){alert("Sem espaço no navegador. Exporte um backup e remova fotos pesadas.")}}
+var col=null;
+function saveLocal(){try{localStorage.setItem(KEY,JSON.stringify(items))}catch(e){alert("Sem espaço no navegador. Exporte um backup e remova fotos pesadas.")}}
+function fail(e){alert("Não consegui salvar: "+((e&&e.message)||"confira se você tem permissão de edição neste site."))}
+function status(t){$("st").textContent=t}
+function upsert(o){var ix=items.findIndex(function(i){return i.id===o.id});if(ix>-1)items[ix]=o;else items.push(o);
+  if(col){col.doc(o.id).set(o).catch(fail)}else saveLocal();render()}
+function remove(id){items=items.filter(function(i){return i.id!==id});if(col){col.doc(id).delete().catch(fail)}else saveLocal();render()}
+var local=[],unsub=null;
+var FB={apiKey:"AIzaSyAXX4nXy57uyBAZUOFTdaqFFQpv1_0r1gU",authDomain:"nossacasinha-2b377.firebaseapp.com",projectId:"nossacasinha-2b377",storageBucket:"nossacasinha-2b377.firebasestorage.app",messagingSenderId:"822268124645",appId:"1:822268124645:web:0c6fefc2ca218ab42c230c"};
+function initDb(){
+  if(!window.firebase){status("Sem conexão com o Firebase");return}
+  firebase.initializeApp(FB);var fs=firebase.firestore();
+  function go(code){
+    $("lg").style.display="none";$("add").style.display="";
+    col=fs.collection("casas").doc(code).collection("items");var first=true;
+    unsub=col.onSnapshot(function(sn){
+      var remote=sn.docs.map(function(d){var x=d.data();x.id=d.id;return x});
+      if(first){first=false;
+        if(!remote.length&&local.length&&confirm("Há "+local.length+" itens salvos só neste aparelho. Enviar pra lista compartilhada?")){local.forEach(function(i){col.doc(i.id).set(i).catch(fail)});local=[];return}}
+      items=remote;render();status("🔗 Sincronizado")
+    },function(){status("Sem acesso");alert("Não consegui ler o banco. Confira as regras do Firestore.")});
+  }
+  function ask(){$("lg").style.display="flex";$("add").style.display="none";items=[];render()}
+  $("lgb").onclick=function(){
+    var c=$("lgi").value.toLowerCase().replace(/[^a-z0-9_-]/g,"");
+    if(c.length<6){alert("Use um código com pelo menos 6 letras ou números.");return}
+    try{localStorage.setItem("casinha:code",c)}catch(e){}
+    go(c)};
+  $("out").onclick=function(){try{localStorage.removeItem("casinha:code")}catch(e){}location.reload()};
+  var saved="";try{saved=localStorage.getItem("casinha:code")||""}catch(e){}
+  if(saved)go(saved);else ask();
+}
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
 function brl(n){return (Number(n)||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}
 function safeUrl(u){return /^https?:\/\//i.test(u||"")?u:""}
@@ -146,25 +182,22 @@ function readForm(){
 $("ph").onchange=function(){
   var f=this.files[0];if(!f)return;var r=new FileReader();
   r.onload=function(){var im=new Image();im.onload=function(){
-    var s=Math.min(1,640/Math.max(im.width,im.height)),c=document.createElement("canvas");
+    var s=Math.min(1,480/Math.max(im.width,im.height)),c=document.createElement("canvas");
     c.width=im.width*s;c.height=im.height*s;c.getContext("2d").drawImage(im,0,0,c.width,c.height);
-    photo=c.toDataURL("image/jpeg",0.7)};im.src=r.result};
+    photo=c.toDataURL("image/jpeg",0.6)};im.src=r.result};
   r.readAsDataURL(f);
 };
 $("frm").onsubmit=function(e){
-  e.preventDefault();var o=readForm();
-  var ix=items.findIndex(function(i){return i.id===o.id});
-  if(ix>-1)items[ix]=o;else items.push(o);
-  save();render();$("dlg").close();
+  e.preventDefault();upsert(readForm());$("dlg").close();
 };
 $("cl").onclick=function(){$("dlg").close()};
-$("dl").onclick=function(){if(confirm("Excluir este item?")){items=items.filter(function(i){return i.id!==editId});save();render();$("dlg").close()}};
+$("dl").onclick=function(){if(confirm("Excluir este item?")){remove(editId);$("dlg").close()}};
 $("add").onclick=function(){openDlg(null)};
 $("list").onclick=function(e){
   var b=e.target.closest("button[data-a]");if(!b)return;
   var it=items.find(function(i){return i.id===b.dataset.id});if(!it)return;
   if(b.dataset.a==="edit")openDlg(it);
-  if(b.dataset.a==="pay"){it.pp=Math.min(+it.np,(+it.pp||0)+1);save();render()}
+  if(b.dataset.a==="pay"){var c=Object.assign({},it);c.pp=Math.min(+c.np,(+c.pp||0)+1);upsert(c)}
   if(b.dataset.a==="buy"){openDlg(it);$("s").value="comprado";$("v").value=it.e||""}
 };
 ["q","fs","fc"].forEach(function(i){$(i).oninput=render});
@@ -175,10 +208,10 @@ $("exp").onclick=function(){
 $("imp").onclick=function(){$("impf").click()};
 $("impf").onchange=function(){
   var f=this.files[0];if(!f)return;var r=new FileReader();
-  r.onload=function(){try{var d=JSON.parse(r.result);if(Array.isArray(d)&&confirm("Substituir a lista atual pelo backup?")){items=d;save();render()}}catch(e){alert("Arquivo inválido.")}};
+  r.onload=function(){try{var d=JSON.parse(r.result);if(Array.isArray(d)&&confirm("Importar os itens do backup? (mesmo ID = atualiza)")){d.forEach(function(x){if(x&&x.id)upsert(x)})}}catch(e){alert("Arquivo inválido.")}};
   r.readAsText(f);
 };
-load();render();
+load();local=items.slice();items=[];render();initDb();
 })();
 </script>
 </body>
